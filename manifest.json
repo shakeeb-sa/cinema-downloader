@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "⚡ FastStream Clone",
+  "version": "2.1",
+  "description": "Sniffs and Downloads HLS Streams with Header Spoofing",
+  "permissions": [
+    "webRequest",
+    "storage",
+    "tabs",
+    "downloads",
+    "declarativeNetRequest" 
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["downloader.html", "downloader.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
