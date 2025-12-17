@@ -24,7 +24,9 @@ document.addEventListener("DOMContentLoaded", () => {
           // If it's a file, we can download directly.
           // If it's a stream (m3u8), we just copy link for now (Phase 1).
           const isStream = v.type === "stream";
-          const btnText = isStream ? "📋 Copy Stream URL (M3U8)" : "⬇️ Download MP4";
+          const btnText = isStream
+            ? "📋 Copy Stream URL (M3U8)"
+            : "⬇️ Download MP4";
           const btnClass = isStream ? "btn-stream" : "btn-download";
 
           item.innerHTML = `
@@ -36,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
           list.appendChild(item);
         });
 
-                   // 4. Handle Clicks
+        // 4. Handle Clicks
         document.querySelectorAll("button").forEach((btn) => {
           btn.addEventListener("click", (e) => {
             const url = e.target.dataset.url;
@@ -45,13 +47,17 @@ document.addEventListener("DOMContentLoaded", () => {
             if (type === "stream") {
               // Phase 3: Open Internal Downloader
               // ⚡ NEW: We pass the CURRENT PAGE URL as the 'referer'
-              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+              chrome.tabs.query(
+                { active: true, currentWindow: true },
+                (tabs) => {
                   const currentPage = tabs[0].url;
                   chrome.tabs.create({
-                      url: `downloader.html?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(currentPage)}`
+                    url: `downloader.html?url=${encodeURIComponent(
+                      url
+                    )}&referer=${encodeURIComponent(currentPage)}`,
                   });
-              });
-              
+                }
+              );
             } else {
               chrome.downloads.download({ url: url });
             }

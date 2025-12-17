@@ -1,30 +1,78 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <meta charset="UTF-8" />
+  <head>
     <title>Downloading Video...</title>
     <style>
-        body { font-family: sans-serif; background: #2d3436; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .container { width: 600px; background: #3d4a4d; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
-        h2 { margin-top: 0; color: #00b894; }
-        .progress-bar { width: 100%; height: 20px; background: #555; border-radius: 10px; overflow: hidden; margin: 20px 0; }
-        .progress-fill { height: 100%; background: #00b894; width: 0%; transition: width 0.1s; }
-        .status { font-family: monospace; color: #aaa; margin-bottom: 20px; }
-        button { padding: 10px 20px; font-weight: bold; cursor: pointer; border: none; border-radius: 5px; background: #e17055; color: white; display: none; }
-        button:hover { background: #d35400; }
+      body {
+        font-family: sans-serif;
+        background: #2d3436;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+      }
+      .container {
+        width: 600px;
+        background: #3d4a4d;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        text-align: center;
+      }
+      h2 {
+        margin-top: 0;
+        color: #00b894;
+      }
+      .progress-bar {
+        width: 100%;
+        height: 20px;
+        background: #555;
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 20px 0;
+      }
+      .progress-fill {
+        height: 100%;
+        background: #00b894;
+        width: 0%;
+        transition: width 0.1s;
+      }
+      .status {
+        font-family: monospace;
+        color: #aaa;
+        margin-bottom: 20px;
+      }
+      button {
+        padding: 10px 20px;
+        font-weight: bold;
+        cursor: pointer;
+        border: none;
+        border-radius: 5px;
+        background: #e17055;
+        color: white;
+        display: none;
+      }
+      button:hover {
+        background: #d35400;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <h2>⚡ Video Processor</h2>
-        <div id="filename">Initializing...</div>
-        
-        <div class="progress-bar">
-            <div id="bar" class="progress-fill"></div>
-        </div>
-        
-        <div id="status" class="status">Connecting to stream...</div>
-        <button id="downloadBtn">💾 Save to Disk</button>
+      <h2>⚡ Video Processor</h2>
+      <div id="filename">Initializing...</div>
+
+      <div class="progress-bar">
+        <div id="bar" class="progress-fill"></div>
+      </div>
+
+      <div id="status" class="status">Connecting to stream...</div>
+      <button id="downloadBtn">💾 Save to Disk</button>
     </div>
     <script src="downloader.js"></script>
-</body>
+  </body>
 </html>
