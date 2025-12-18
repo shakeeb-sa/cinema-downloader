@@ -71,7 +71,31 @@
         <!-- Bars will be injected here by JS -->
       </div>
 
+      <!-- ⚡ NEW: DETAILED STATUS & TIMER -->
       <div id="status" class="status">Connecting...</div>
+
+      <div
+        id="timer-info"
+        style="
+          font-size: 11px;
+          color: #aaa;
+          margin-top: 10px;
+          padding: 10px;
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 5px;
+          display: none;
+        "
+      >
+        <div style="display: flex; justify-content: space-around">
+          <span
+            >⏱️ Elapsed: <b id="elapsed-time" style="color: white">0s</b></span
+          >
+          <span
+            >⌛ ETA:
+            <b id="eta-time" style="color: #00cec9">Calculating...</b></span
+          >
+        </div>
+      </div>
       <button id="downloadBtn">💾 Save to Disk</button>
     </div>
     <script src="downloader.js"></script>

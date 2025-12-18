@@ -26,6 +26,9 @@ let activeDownloads = 0;
 let totalDownloadedBytes = 0;
 let activeControllers = new Set();
 let isManualRevive = false;
+let startTime = null;
+let currentQualityLabel = "Unknown";
+let timerInterval = null;
 
 // ⚡ HELPER: Create a Progress Bar HTML element
 function createBar(id) {
@@ -216,13 +219,35 @@ async function downloadLoop(segments) {
             const localPct = (localCompleted / totalForThisWorker) * 100;
             localBar.style.width = localPct + "%";
 
-            // Update Global Text
+            // ⚡ START TIMER ON FIRST CHUNK
+            if (!startTime) {
+              startTime = Date.now();
+              document.getElementById("timer-info").style.display = "block";
+              startTimerUI(); // Start the tick
+            }
+
+            // ⚡ CALCULATE ETA
+            const currentTime = Date.now();
+            const elapsedSeconds = (currentTime - startTime) / 1000;
+            const chunksPerSecond = globalCompleted / elapsedSeconds;
+            const remainingChunks = segments.length - globalCompleted;
+            const etaSeconds = remainingChunks / chunksPerSecond;
+
+            // Update UI
+            const pct = (globalCompleted / segments.length) * 100;
+            localBar.style.width = localPct + "%";
+
             statusEl.innerHTML = `
+                            Quality: <b style="color:#f1c40f;">${currentQualityLabel}</b><br>
                             Total Size: <b>${formatSize(
                               totalDownloadedBytes
                             )}</b><br>
                             Chunks: ${globalCompleted} / ${segments.length}
                         `;
+
+            // Update ETA Text
+            document.getElementById("eta-time").textContent =
+              formatTime(etaSeconds);
 
             activeControllers.delete(controller);
             break;
@@ -258,25 +283,34 @@ async function downloadLoop(segments) {
 }
 
 function finalize() {
-  const validBlobs = blobs.filter((b) => b);
-  if (validBlobs.length === 0) return fail("Failed.");
+  // 1. Stop the clock immediately
+  if (timerInterval) clearInterval(timerInterval);
+  const totalDuration = formatTime((Date.now() - startTime) / 1000);
 
-  // Turn all bars blue to show success
-  for (let i = 0; i < 4; i++) {
+  // 2. Filter nulls (failed chunks)
+  const validBlobs = blobs.filter((b) => b);
+  if (validBlobs.length === 0) return fail("Download failed.");
+
+  // 3. Turn all bars blue to show success
+  const PARTITIONS = 6; // Match your Nitro thread count
+  for (let i = 0; i < PARTITIONS; i++) {
     const b = document.getElementById(`bar-${i}`);
     if (b) b.style.backgroundColor = "#00cec9";
   }
 
-  statusEl.textContent = "✨ Stitching...";
+  statusEl.textContent = "✨ Stitching video...";
   pauseBtn.style.display = "none";
   resumeBtn.style.display = "none";
   reviveBtn.style.display = "none";
 
+  // 4. Create the final file and calculate size (DO THIS BEFORE SETTING TEXT)
   const finalBlob = new Blob(validBlobs, { type: "video/mp2t" });
   const url = URL.createObjectURL(finalBlob);
-  const sizeStr = formatSize(finalBlob.size);
+  const sizeStr = formatSize(finalBlob.size); // ⚡ NOW sizeStr IS DEFINED
 
-  statusEl.textContent = `✅ DONE! ${sizeStr}`;
+  // 5. Update UI with the final result
+  statusEl.textContent = `✅ DONE! ${sizeStr} in ${totalDuration}`;
+  document.getElementById("eta-time").textContent = "FINISHED";
 
   downloadBtn.textContent = `💾 Save Video (.ts) (${sizeStr})`;
   downloadBtn.style.display = "inline-block";
@@ -291,6 +325,7 @@ function finalize() {
     window.onbeforeunload = null;
   };
 
+  // Auto-trigger save
   downloadBtn.click();
 }
 
@@ -321,3 +356,25 @@ reviveBtn.onclick = () => {
 };
 
 start();
+
+// ⚡ FORMAT SECONDS TO MM:SS
+function formatTime(seconds) {
+  if (!isFinite(seconds) || seconds < 0) return "--:--";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+// ⚡ LIVE ELAPSED TIMER
+function startTimerUI() {
+  timerInterval = setInterval(() => {
+    if (isPaused || !startTime) return;
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    document.getElementById("elapsed-time").textContent = formatTime(elapsed);
+  }, 1000);
+}
+
+// ⚡ CAPTURE QUALITY LABEL
+// Add this inside your quality button click handler in showQualityMenu()
+// Inside: btn.onclick = () => { ...
+// ADD THIS LINE: currentQualityLabel = q.label;
