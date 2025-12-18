@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
   "name": "⚡ FastStream Clone",
-  "version": "2.1",
-  "description": "Sniffs and Downloads HLS Streams with Header Spoofing",
+  "version": "3.0",
+  "description": "Sniffs and Downloads HLS Streams",
   "permissions": [
     "webRequest",
     "storage",
     "tabs",
     "downloads",
-    "declarativeNetRequest" 
+    "declarativeNetRequest",
+    "contextMenus",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"

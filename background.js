@@ -170,3 +170,88 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep message channel open
   }
 });
+
+// ... (All your existing Sniffer/Spoofer code is above here) ...
+
+// ==========================================
+// 7. THE FORCE SCANNER (Context Menu)
+// ==========================================
+
+// Create the menu item on install
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "force-scan",
+    title: "⚡ FastStream: Force Video Scan",
+    contexts: ["all"], // Works anywhere on the page
+  });
+});
+
+// Handle the click
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "force-scan") {
+    // Inject the scanner script
+    chrome.scripting.executeScript(
+      {
+        target: { tabId: tab.id },
+        func: scanPageForVideos,
+      },
+      (results) => {
+        // The script returns an array of URLs found
+        if (results && results[0] && results[0].result) {
+          const foundUrls = results[0].result;
+          let count = 0;
+
+          foundUrls.forEach((url) => {
+            // Determine type
+            let type =
+              url.includes(".m3u8") || url.includes(".mpd") ? "stream" : "file";
+            // Add to our main list
+            addVideoToCache(tab.id, url, type, 0);
+            count++;
+          });
+
+          console.log(`Force Scan found ${count} videos.`);
+        }
+      }
+    );
+  }
+});
+
+// ⚡ THIS FUNCTION RUNS INSIDE THE WEBPAGE
+function scanPageForVideos() {
+  let found = new Set();
+
+  // Strategy 1: Check the Performance API (The Browser's Network Log)
+  // This sees everything the browser has fetched, even if hidden.
+  const resources = performance.getEntriesByType("resource");
+  resources.forEach((res) => {
+    const url = res.name;
+    if (
+      url.includes(".m3u8") ||
+      url.includes(".mpd") ||
+      (url.includes(".mp4") && !url.includes(".js"))
+    ) {
+      found.add(url);
+    }
+  });
+
+  // Strategy 2: Check standard Video Tags
+  document.querySelectorAll("video").forEach((v) => {
+    if (v.src && v.src.startsWith("http")) found.add(v.src);
+    // Check for source child tags
+    v.querySelectorAll("source").forEach((s) => {
+      if (s.src && s.src.startsWith("http")) found.add(s.src);
+    });
+  });
+
+  // Strategy 3: Scan Page Text for Hidden M3U8 links (Regex Scan)
+  // Sometimes URLs are stored in JS variables.
+  const html = document.body.innerHTML;
+  const regex = /(https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)/g;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    found.add(match[1]);
+  }
+
+  return Array.from(found);
+}
