@@ -247,28 +247,47 @@ async function downloadLoop(segments) {
 }
 
 function finalize() {
+  // Filter nulls (failed chunks)
   const validBlobs = blobs.filter((b) => b);
+
+  // Safety Check: Did we lose too much data?
   if (validBlobs.length === 0) return fail("Download failed.");
+
+  // Warning if > 2% of chunks are missing
+  if (validBlobs.length < blobs.length * 0.98) {
+    if (
+      !confirm(
+        `⚠️ Warning: ${
+          blobs.length - validBlobs.length
+        } chunks failed. The video might skip. Save anyway?`
+      )
+    ) {
+      statusEl.textContent = "❌ Save Cancelled.";
+      return;
+    }
+  }
 
   statusEl.textContent = "✨ Stitching video...";
   pauseBtn.style.display = "none";
   resumeBtn.style.display = "none";
   reviveBtn.style.display = "none";
 
-  const finalBlob = new Blob(validBlobs, { type: "video/mp4" });
+  // ⚡ FIX 1: Correct MIME Type for HLS (mp2t)
+  const finalBlob = new Blob(validBlobs, { type: "video/mp2t" });
   const url = URL.createObjectURL(finalBlob);
   const sizeStr = formatSize(finalBlob.size);
 
   statusEl.textContent = `✅ Complete! Final Size: ${sizeStr}`;
   barEl.style.backgroundColor = "#00cec9";
 
-  downloadBtn.textContent = `💾 Save MP4 (${sizeStr})`;
+  // ⚡ FIX 2: Change extension to .ts so players handle it correctly
+  downloadBtn.textContent = `💾 Save Video (.ts) (${sizeStr})`;
   downloadBtn.style.display = "inline-block";
 
   downloadBtn.onclick = () => {
     const a = document.createElement("a");
     a.href = url;
-    a.download = `faststream_${Date.now()}.mp4`;
+    a.download = `faststream_${Date.now()}.ts`;
     document.body.appendChild(a);
     a.click();
     a.remove();
