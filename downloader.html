@@ -63,14 +63,15 @@
   </head>
   <body>
     <div class="container">
-      <h2>⚡ Video Processor</h2>
+      <h2>⚡ Quad-Core Downloader</h2>
       <div id="filename">Initializing...</div>
 
-      <div class="progress-bar">
-        <div id="bar" class="progress-fill"></div>
+      <!-- ⚡ NEW: Container for multiple bars -->
+      <div id="multi-bar-container" style="margin: 20px 0; text-align: left">
+        <!-- Bars will be injected here by JS -->
       </div>
 
-      <div id="status" class="status">Connecting to stream...</div>
+      <div id="status" class="status">Connecting...</div>
       <button id="downloadBtn">💾 Save to Disk</button>
     </div>
     <script src="downloader.js"></script>

@@ -3,16 +3,16 @@ const targetUrl = urlParams.get("url");
 const targetReferer = urlParams.get("referer");
 
 const statusEl = document.getElementById("status");
-const barEl = document.getElementById("bar");
 const filenameEl = document.getElementById("filename");
 const downloadBtn = document.getElementById("downloadBtn");
+const multiBarContainer = document.getElementById("multi-bar-container");
 
-// UI for Controls
+// UI Controls
 const controlsDiv = document.createElement("div");
 controlsDiv.innerHTML = `
     <button id="pauseBtn" style="display:none; background:#f1c40f; margin-top:10px; margin-right:5px;">⏸ Pause</button>
     <button id="resumeBtn" style="display:none; background:#2ecc71; margin-top:10px; margin-right:5px;">▶ Resume</button>
-    <button id="reviveBtn" style="display:none; background:#e17055; margin-top:10px;">⚡ Revive Stuck</button>
+    <button id="reviveBtn" style="display:none; background:#e17055; margin-top:10px;">⚡ Revive</button>
 `;
 document.querySelector(".container").appendChild(controlsDiv);
 
@@ -24,9 +24,23 @@ let blobs = [];
 let isPaused = false;
 let activeDownloads = 0;
 let totalDownloadedBytes = 0;
-// ⚡ NEW: Track active requests so we can kill them manually
 let activeControllers = new Set();
 let isManualRevive = false;
+
+// ⚡ HELPER: Create a Progress Bar HTML element
+function createBar(id) {
+  const wrapper = document.createElement("div");
+  wrapper.style.marginBottom = "8px";
+  wrapper.innerHTML = `
+        <div style="font-size:10px; color:#ccc; margin-bottom:2px;">Thread ${
+          id + 1
+        }</div>
+        <div style="width: 100%; height: 10px; background: #555; border-radius: 5px; overflow: hidden;">
+            <div id="bar-${id}" style="height: 100%; background: #00b894; width: 0%; transition: width 0.2s;"></div>
+        </div>
+    `;
+  return wrapper;
+}
 
 function formatSize(bytes) {
   if (bytes === 0) return "0 MB";
@@ -40,13 +54,13 @@ window.onbeforeunload = function (e) {
     (blobs.length > 0 && downloadBtn.style.display === "none")
   ) {
     e.preventDefault();
-    e.returnValue = "Download in progress...";
-    return "Download in progress...";
+    e.returnValue = "Downloading...";
+    return "Downloading...";
   }
 };
 
 async function start() {
-  if (!targetUrl) return fail("No URL provided.");
+  if (!targetUrl) return fail("No URL.");
 
   statusEl.textContent = "🛡️ Authenticating...";
   await new Promise((resolve) => {
@@ -67,20 +81,17 @@ async function start() {
     if (!response.ok) throw new Error("Manifest fetch failed");
     const text = await response.text();
 
+    // Master Playlist Check
     if (text.includes("#EXT-X-STREAM-INF")) {
-      statusEl.textContent = "⚡ Picking Best Quality...";
       const lines = text.split("\n");
       let bestUrl = "",
         maxBw = 0;
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].includes("BANDWIDTH=")) {
-          const bwMatch = lines[i].match(/BANDWIDTH=(\d+)/);
-          if (bwMatch) {
-            const bw = parseInt(bwMatch[1]);
-            if (bw > maxBw) {
-              maxBw = bw;
-              bestUrl = lines[i + 1].trim();
-            }
+          const bw = parseInt(lines[i].match(/BANDWIDTH=(\d+)/)[1]);
+          if (bw > maxBw) {
+            maxBw = bw;
+            bestUrl = lines[i + 1].trim();
           }
         }
       }
@@ -110,8 +121,7 @@ async function processSegments(url, preLoadedText = null) {
       text = await res.text();
     }
 
-    if (text.includes("#EXT-X-KEY"))
-      return fail("⚠️ DRM Encrypted Stream. Cannot Download.");
+    if (text.includes("#EXT-X-KEY")) return fail("⚠️ DRM Encrypted.");
 
     const lines = text.split("\n");
     const baseObj = new URL(url);
@@ -121,13 +131,12 @@ async function processSegments(url, preLoadedText = null) {
       line = line.trim();
       if (!line || line.startsWith("#")) return;
       if (/\.(html|css|js|png|jpg|ico)$/i.test(line)) return;
-
       try {
         segments.push(new URL(line, baseObj.href).href);
       } catch (e) {}
     });
 
-    if (segments.length === 0) return fail("No video segments found.");
+    if (segments.length === 0) return fail("No segments.");
 
     if (new URL(segments[0]).hostname !== baseObj.hostname) {
       await new Promise((resolve) => {
@@ -145,7 +154,7 @@ async function processSegments(url, preLoadedText = null) {
 
     filenameEl.textContent = `Found ${segments.length} chunks.`;
     pauseBtn.style.display = "inline-block";
-    reviveBtn.style.display = "inline-block"; // Show Revive Button
+    reviveBtn.style.display = "inline-block";
 
     await downloadLoop(segments);
   } catch (e) {
@@ -154,133 +163,121 @@ async function processSegments(url, preLoadedText = null) {
 }
 
 async function downloadLoop(segments) {
-  let completed = 0;
-  const CONCURRENCY = 5;
-  let estimatedTotalSize = 0;
+  const PARTITIONS = 6;
 
-  const downloadSegment = async (url, index) => {
-    let attempts = 0;
-    const maxAttempts = 10; // Increased retry limit slightly for manual interventions
+  // ⚡ SETUP UI: Create 4 Bars
+  multiBarContainer.innerHTML = ""; // Clear
+  for (let i = 0; i < PARTITIONS; i++) {
+    multiBarContainer.appendChild(createBar(i));
+  }
 
-    while (attempts < maxAttempts) {
-      try {
-        while (isPaused) {
-          statusEl.textContent = `⏸ Paused (${formatSize(
-            totalDownloadedBytes
-          )})`;
-          await new Promise((r) => setTimeout(r, 1000));
-        }
+  const chunksPerPartition = Math.ceil(segments.length / PARTITIONS);
+  let globalCompleted = 0;
 
-        const controller = new AbortController();
-        const signal = controller.signal;
+  const runPartition = async (partitionId) => {
+    const startIndex = partitionId * chunksPerPartition;
+    const endIndex = Math.min(startIndex + chunksPerPartition, segments.length);
+    const totalForThisWorker = endIndex - startIndex;
+    let localCompleted = 0;
 
-        // ⚡ Register Controller for Manual Revive
-        activeControllers.add(controller);
+    // Grab the specific bar element for this worker
+    const localBar = document.getElementById(`bar-${partitionId}`);
 
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s Auto-Timeout
+    for (let i = startIndex; i < endIndex; i++) {
+      const url = segments[i];
+      let attempts = 0;
+      const maxAttempts = 10;
 
+      while (attempts < maxAttempts) {
         try {
-          const response = await fetch(url, { signal });
-          clearTimeout(timeoutId);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const blob = await response.blob();
-
-          blobs[index] = blob;
-          totalDownloadedBytes += blob.size;
-          completed++;
-
-          // Smart Estimate
-          if (completed === 5) {
-            const avgChunkSize = totalDownloadedBytes / 5;
-            estimatedTotalSize = avgChunkSize * segments.length;
+          while (isPaused) {
+            statusEl.textContent = `⏸ Paused`;
+            await new Promise((r) => setTimeout(r, 1000));
           }
 
-          const pct = (completed / segments.length) * 100;
-          barEl.style.width = pct + "%";
+          const controller = new AbortController();
+          activeControllers.add(controller);
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-          let sizeText = `Size: <b>${formatSize(totalDownloadedBytes)}</b>`;
-          if (estimatedTotalSize > 0)
-            sizeText += ` / ~${formatSize(estimatedTotalSize)}`;
+          try {
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
 
-          statusEl.innerHTML = `Downloading: <b>${completed}</b> / ${segments.length}<br>${sizeText}`;
+            blobs[i] = blob;
+            totalDownloadedBytes += blob.size;
 
-          // Success: Remove controller and exit
-          activeControllers.delete(controller);
-          return;
-        } catch (fetchErr) {
-          clearTimeout(timeoutId);
-          activeControllers.delete(controller);
-          throw fetchErr; // Re-throw to handle retry logic
-        }
-      } catch (e) {
-        // If manual revive, do NOT count as a failed attempt (so we don't hit maxAttempts)
-        if (isManualRevive && e.name === "AbortError") {
-          console.log(`Chunk ${index} manually revived.`);
-          attempts--; // Credit back the attempt
-        } else {
-          attempts++;
-        }
+            // Update Stats
+            localCompleted++;
+            globalCompleted++;
 
-        if (attempts >= maxAttempts) {
-          blobs[index] = null;
-          return; // Give up
-        } else {
-          // Backoff wait
-          await new Promise((r) => setTimeout(r, 1000 * attempts));
+            // ⚡ UPDATE LOCAL BAR
+            const localPct = (localCompleted / totalForThisWorker) * 100;
+            localBar.style.width = localPct + "%";
+
+            // Update Global Text
+            statusEl.innerHTML = `
+                            Total Size: <b>${formatSize(
+                              totalDownloadedBytes
+                            )}</b><br>
+                            Chunks: ${globalCompleted} / ${segments.length}
+                        `;
+
+            activeControllers.delete(controller);
+            break;
+          } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            activeControllers.delete(controller);
+            throw fetchErr;
+          }
+        } catch (e) {
+          if (isManualRevive && e.name === "AbortError") attempts--;
+          else attempts++;
+
+          if (attempts >= maxAttempts) {
+            blobs[i] = null;
+            break;
+          } else {
+            await new Promise((r) => setTimeout(r, 500 * attempts));
+          }
         }
       }
     }
   };
 
-  activeDownloads = segments.length;
-
-  for (let i = 0; i < segments.length; i += CONCURRENCY) {
-    const batch = segments.slice(i, i + CONCURRENCY);
-    const promises = batch.map((url, offset) =>
-      downloadSegment(url, i + offset)
-    );
-    await Promise.all(promises);
+  const workers = [];
+  for (let p = 0; p < PARTITIONS; p++) {
+    workers.push(runPartition(p));
   }
 
+  activeDownloads = segments.length;
+  await Promise.all(workers);
   activeDownloads = 0;
   finalize();
 }
 
 function finalize() {
-  // Filter nulls (failed chunks)
   const validBlobs = blobs.filter((b) => b);
+  if (validBlobs.length === 0) return fail("Failed.");
 
-  // Safety Check: Did we lose too much data?
-  if (validBlobs.length === 0) return fail("Download failed.");
-
-  // Warning if > 2% of chunks are missing
-  if (validBlobs.length < blobs.length * 0.98) {
-    if (
-      !confirm(
-        `⚠️ Warning: ${
-          blobs.length - validBlobs.length
-        } chunks failed. The video might skip. Save anyway?`
-      )
-    ) {
-      statusEl.textContent = "❌ Save Cancelled.";
-      return;
-    }
+  // Turn all bars blue to show success
+  for (let i = 0; i < 4; i++) {
+    const b = document.getElementById(`bar-${i}`);
+    if (b) b.style.backgroundColor = "#00cec9";
   }
 
-  statusEl.textContent = "✨ Stitching video...";
+  statusEl.textContent = "✨ Stitching...";
   pauseBtn.style.display = "none";
   resumeBtn.style.display = "none";
   reviveBtn.style.display = "none";
 
-  // ⚡ FIX 1: Correct MIME Type for HLS (mp2t)
   const finalBlob = new Blob(validBlobs, { type: "video/mp2t" });
   const url = URL.createObjectURL(finalBlob);
   const sizeStr = formatSize(finalBlob.size);
 
-  statusEl.textContent = `✅ Complete! Final Size: ${sizeStr}`;
-  barEl.style.backgroundColor = "#00cec9";
+  statusEl.textContent = `✅ DONE! ${sizeStr}`;
 
-  // ⚡ FIX 2: Change extension to .ts so players handle it correctly
   downloadBtn.textContent = `💾 Save Video (.ts) (${sizeStr})`;
   downloadBtn.style.display = "inline-block";
 
@@ -302,7 +299,6 @@ function fail(msg) {
   statusEl.style.color = "#ff7675";
 }
 
-// PAUSE / RESUME
 pauseBtn.onclick = () => {
   isPaused = true;
   pauseBtn.style.display = "none";
@@ -314,16 +310,11 @@ resumeBtn.onclick = () => {
   resumeBtn.style.display = "none";
 };
 
-// ⚡ REVIVE LOGIC
 reviveBtn.onclick = () => {
-  statusEl.textContent = "⚡ Reviving stuck chunks...";
-  isManualRevive = true; // Set flag
-
-  // Abort all currently running requests
-  activeControllers.forEach((controller) => controller.abort());
+  statusEl.textContent = "⚡ Reviving...";
+  isManualRevive = true;
+  activeControllers.forEach((c) => c.abort());
   activeControllers.clear();
-
-  // Reset flag after short delay so new requests aren't marked as manual
   setTimeout(() => {
     isManualRevive = false;
   }, 500);
