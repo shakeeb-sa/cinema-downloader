@@ -44,22 +44,23 @@ document.addEventListener("DOMContentLoaded", () => {
             const url = e.target.dataset.url;
             const type = e.target.dataset.type;
 
-            if (type === "stream") {
-              // Phase 3: Open Internal Downloader
-              // ⚡ NEW: We pass the CURRENT PAGE URL as the 'referer'
-              chrome.tabs.query(
-                { active: true, currentWindow: true },
-                (tabs) => {
+                        if (type === "stream") {
+              // Phase 3: Open Internal Downloader with Smart Naming
+              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                   const currentPage = tabs[0].url;
+                  const rawTitle = tabs[0].title || "FastStream_Video";
+                  
+                  // ⚡ CLEAN FILENAME: Remove illegal characters like \ / : * ? " < > |
+                  const sanitizedTitle = rawTitle
+                    .replace(/[\\/:*?"<>|]/g, "_") // Replace bad chars with underscore
+                    .replace(/\s+/g, "_")         // Replace spaces with underscore for better compatibility
+                    .substring(0, 100);           // Limit length
+                  
                   chrome.tabs.create({
-                    url: `downloader.html?url=${encodeURIComponent(
-                      url
-                    )}&referer=${encodeURIComponent(currentPage)}`,
+                    url: `downloader.html?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(currentPage)}&name=${encodeURIComponent(sanitizedTitle)}`
                   });
-                }
-              );
-            } else {
-              chrome.downloads.download({ url: url });
+              });
+              window.close();
             }
           });
         });

@@ -6,6 +6,9 @@ const statusEl = document.getElementById("status");
 const filenameEl = document.getElementById("filename");
 const downloadBtn = document.getElementById("downloadBtn");
 const multiBarContainer = document.getElementById("multi-bar-container");
+const targetName = urlParams.get("name") || `faststream_${Date.now()}`;
+// ⚡ Update the UI to show the movie name
+filenameEl.textContent = targetName.replace(/_/g, " ");
 
 // UI Controls
 const controlsDiv = document.createElement("div");
@@ -84,36 +87,119 @@ async function start() {
     if (!response.ok) throw new Error("Manifest fetch failed");
     const text = await response.text();
 
-    // Master Playlist Check
+    // ⚡ CHECK: Is this a Master Playlist?
     if (text.includes("#EXT-X-STREAM-INF")) {
+      statusEl.textContent = "⚡ Master List detected. Parsing qualities...";
       const lines = text.split("\n");
-      let bestUrl = "",
-        maxBw = 0;
+      const qualities = [];
+
       for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes("BANDWIDTH=")) {
-          const bw = parseInt(lines[i].match(/BANDWIDTH=(\d+)/)[1]);
-          if (bw > maxBw) {
-            maxBw = bw;
-            bestUrl = lines[i + 1].trim();
+        const line = lines[i].trim();
+        if (line.includes("#EXT-X-STREAM-INF")) {
+          // 1. Get Resolution Label (e.g., 1080p)
+          let label = "Quality";
+          const resMatch = line.match(/RESOLUTION=(\d+x\d+)/);
+          if (resMatch) {
+            label = resMatch[1].split("x")[1] + "p";
+          } else {
+            const bwMatch = line.match(/BANDWIDTH=(\d+)/);
+            if (bwMatch)
+              label = Math.round(parseInt(bwMatch[1]) / 1000000) + " Mbps";
+          }
+
+          // 2. Get the URL from the next valid line
+          let urlLine = "";
+          for (let j = i + 1; j < i + 4; j++) {
+            if (lines[j] && !lines[j].startsWith("#")) {
+              urlLine = lines[j].trim();
+              break;
+            }
+          }
+
+          if (urlLine) {
+            // Handle relative URLs correctly
+            const absoluteUrl = new URL(urlLine, targetUrl).href;
+            qualities.push({ label: label, url: absoluteUrl });
           }
         }
       }
-      if (bestUrl) {
-        if (!bestUrl.startsWith("http")) {
-          const baseUrl = targetUrl.substring(
-            0,
-            targetUrl.lastIndexOf("/") + 1
-          );
-          bestUrl = baseUrl + bestUrl;
-        }
-        processSegments(bestUrl);
-        return;
+
+      // Deduplicate qualities
+      const uniqueQualities = qualities.filter(
+        (v, i, a) => a.findIndex((t) => t.label === v.label) === i
+      );
+
+      if (uniqueQualities.length > 1) {
+        showQualityMenu(uniqueQualities); // Show buttons
+        return; // Stop here and wait for click
       }
     }
+
+    // ⚡ SMART QUALITY DETECTOR (Lookmovie Edition)
+    const urlLower = targetUrl.toLowerCase();
+
+    // Check for standard numbers OR Base64 encoded resolutions
+    if (urlLower.includes("1080") || urlLower.includes("mta4ma")) {
+      currentQualityLabel = "1080p";
+    } else if (urlLower.includes("720") || urlLower.includes("nziw")) {
+      currentQualityLabel = "720p";
+    } else if (urlLower.includes("480") || urlLower.includes("ndgw")) {
+      currentQualityLabel = "480p";
+    } else if (urlLower.includes("360") || urlLower.includes("mzyw")) {
+      currentQualityLabel = "360p";
+    } else {
+      currentQualityLabel = "HD Source"; // Better than "Original"
+    }
+
+    console.log("Detected Quality:", currentQualityLabel);
     processSegments(targetUrl, text);
   } catch (err) {
     fail(err.message);
   }
+}
+
+function showQualityMenu(qualities) {
+  statusEl.textContent = "Please select your desired quality:";
+  const container = document.getElementById("quality-container");
+  const btns = document.getElementById("quality-buttons");
+
+  if (!container || !btns) {
+    console.error("Missing quality-container or quality-buttons in HTML");
+    return;
+  }
+
+  // Sort High to Low (1080p first)
+  qualities.sort((a, b) => parseInt(b.label) - parseInt(a.label));
+
+  btns.innerHTML = "";
+  qualities.forEach((q) => {
+    const btn = document.createElement("button");
+    btn.textContent = q.label;
+    btn.style.cssText = `
+            background: #0984e3;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            margin: 5px;
+            box-shadow: 0 4px 0 #076bbd;
+        `;
+
+    btn.onclick = () => {
+      // ⚡ UPDATE THE LABEL FOR THE UI
+      currentQualityLabel = q.label;
+
+      container.style.display = "none";
+      statusEl.textContent = `🚀 Quality Set: ${q.label}. Initializing Threads...`;
+      processSegments(q.url);
+    };
+    btns.appendChild(btn);
+  });
+
+  container.style.display = "block";
 }
 
 async function processSegments(url, preLoadedText = null) {
@@ -238,12 +324,14 @@ async function downloadLoop(segments) {
             localBar.style.width = localPct + "%";
 
             statusEl.innerHTML = `
-                            Quality: <b style="color:#f1c40f;">${currentQualityLabel}</b><br>
-                            Total Size: <b>${formatSize(
-                              totalDownloadedBytes
-                            )}</b><br>
-                            Chunks: ${globalCompleted} / ${segments.length}
-                        `;
+    <div style="color:#00cec9; font-weight:bold; margin-bottom:5px;">${targetName.substring(
+      0,
+      50
+    )}...</div>
+    Quality: <b style="color:#f1c40f;">${currentQualityLabel}</b><br>
+    Size: <b>${formatSize(totalDownloadedBytes)}</b><br>
+    Chunks: ${globalCompleted} / ${segments.length}
+`;
 
             // Update ETA Text
             document.getElementById("eta-time").textContent =
@@ -318,7 +406,7 @@ function finalize() {
   downloadBtn.onclick = () => {
     const a = document.createElement("a");
     a.href = url;
-    a.download = `faststream_${Date.now()}.ts`;
+    a.download = `${targetName}.ts`;
     document.body.appendChild(a);
     a.click();
     a.remove();
