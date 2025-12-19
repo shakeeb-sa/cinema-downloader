@@ -1,103 +1,166 @@
 <!DOCTYPE html>
 <html>
-  <meta charset="UTF-8" />
-  <head>
-    <title>Downloading Video...</title>
+<head>
+    <meta charset="UTF-8" />
+    <title>Nitro Downloader</title>
     <style>
-      body {
-        font-family: sans-serif;
-        background: #2d3436;
-        color: white;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100vh;
-        margin: 0;
-      }
-      .container {
-        width: 600px;
-        background: #3d4a4d;
-        padding: 30px;
-        border-radius: 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        text-align: center;
-      }
-      h2 {
-        margin-top: 0;
-        color: #00b894;
-      }
-      .progress-bar {
-        width: 100%;
-        height: 20px;
-        background: #555;
-        border-radius: 10px;
-        overflow: hidden;
-        margin: 20px 0;
-      }
-      .progress-fill {
-        height: 100%;
-        background: #00b894;
-        width: 0%;
-        transition: width 0.1s;
-      }
-      .status {
-        font-family: monospace;
-        color: #aaa;
-        margin-bottom: 20px;
-      }
-      button {
-        padding: 10px 20px;
-        font-weight: bold;
-        cursor: pointer;
-        border: none;
-        border-radius: 5px;
-        background: #e17055;
-        color: white;
-        display: none;
-      }
-      button:hover {
-        background: #d35400;
-      }
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --primary: #10b981;
+            --secondary: #3b82f6;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh; /* Fixed height to prevent cropping */
+            margin: 0;
+            overflow: hidden;
+        }
+        .container {
+            width: 90%;
+            max-width: 480px;
+            background: var(--card-bg);
+            padding: 20px; /* Reduced padding */
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            max-height: 95vh;
+        }
+        h2 {
+            margin: 0;
+            font-size: 20px; /* Smaller header */
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        #filename {
+            font-size: 14px; /* Slightly larger */
+            color: var(--text-dim);
+            margin: 8px 0 18px 0;
+            font-weight: 500;
+            line-height: 1.4;
+            word-wrap: break-word; /* ⚡ ALLOW WRAPPING */
+            display: block;
+            text-align: center;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px; /* Tighter gap */
+            margin-bottom: 15px;
+        }
+        .stat-card {
+            background: rgba(15, 23, 42, 0.4);
+            padding: 8px 12px; /* Tighter padding */
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.05);
+            text-align: left;
+        }
+        .stat-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+        .stat-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
+        }
+        #multi-bar-container {
+            flex-grow: 1; /* Allow this to use available space */
+            overflow-y: auto; /* Scroll if many threads */
+            margin-bottom: 10px;
+            padding-right: 5px;
+        }
+        .thread-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .thread-label { font-size: 9px; color: var(--text-dim); width: 45px; }
+        .bar-bg { flex-grow: 1; height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden; }
+        .bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--secondary)); width: 0%; transition: width 0.3s; }
+        
+        canvas {
+            width: 100% !important;
+            height: auto !important;
+            max-height: 120px; /* ⚡ INCREASED HEIGHT LIMIT */
+            background: #0f172a !important;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border: 1px solid rgba(255,255,255,0.15);
+            display: block;
+        }
+        .btn-group { display: flex; gap: 8px; margin-top: 10px; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px; }
+        #pauseBtn { background: #f59e0b; }
+        #reviveBtn { background: rgba(255,255,255,0.1); color: #fff; }
+        #downloadBtn { background: var(--primary); color: #fff; width: 100%; margin-top: 10px; font-size: 14px; }
     </style>
-  </head>
-  <body>
+</head>
+<body>
     <div class="container">
-      <h2>⚡ Quad-Core Downloader</h2>
-      <div id="filename">Initializing...</div>
+        <h2>Nitro Downloader</h2>
+        <div id="filename">Checking stream...</div>
 
-      <!-- ⚡ NEW: Container for multiple bars -->
-      <div id="multi-bar-container" style="margin: 20px 0; text-align: left">
-        <!-- Bars will be injected here by JS -->
-      </div>
-
-      <!-- ⚡ NEW: DETAILED STATUS & TIMER -->
-      <div id="status" class="status">Connecting...</div>
-
-      <div
-        id="timer-info"
-        style="
-          font-size: 11px;
-          color: #aaa;
-          margin-top: 10px;
-          padding: 10px;
-          background: rgba(0, 0, 0, 0.2);
-          border-radius: 5px;
-          display: none;
-        "
-      >
-        <div style="display: flex; justify-content: space-around">
-          <span
-            >⏱️ Elapsed: <b id="elapsed-time" style="color: white">0s</b></span
-          >
-          <span
-            >⌛ ETA:
-            <b id="eta-time" style="color: #00cec9">Calculating...</b></span
-          >
+        <!-- 1. Quality Selector -->
+        <div id="quality-container" style="display:none;">
+            <div id="quality-buttons"></div>
         </div>
-      </div>
-      <button id="downloadBtn">💾 Save to Disk</button>
+
+        <!-- 2. Live Preview -->
+        <div id="preview-container" style="display:none;">
+            <video id="preview-video" muted style="width: 100%; display: block;"></video>
+        </div>
+
+        <!-- 3. Stats Dashboard -->
+        <div class="dashboard-grid">
+            <div class="stat-card">
+                <div class="stat-label">Elapsed Time</div>
+                <div class="stat-value" id="elapsed-time">00:00</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Estimated ETA</div>
+                <div class="stat-value" id="eta-time">--:--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Data Received</div>
+                <div class="stat-value" id="live-size">0 MB</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Quality</div>
+                <div class="stat-value" id="live-quality">--</div>
+            </div>
+        </div>
+
+        <!-- 4. Integrity Map -->
+        <div id="chunk-map-header" style="display:none; text-align:left; font-size:10px; color:var(--text-dim); margin-bottom:5px;">STREAM INTEGRITY MAP</div>
+        <canvas id="chunk-canvas" width="440" height="40" style="display:none;"></canvas>
+
+        <!-- 5. Thread Activity -->
+        <div id="multi-bar-container"></div>
+
+        <!-- 6. Main Actions -->
+        <div id="status" style="font-size: 12px; color: var(--text-dim); margin-top: 15px;">Initializing...</div>
+        
+        <div class="btn-group">
+            <button id="pauseBtn" style="display:none;">⏸ Pause</button>
+            <button id="resumeBtn" style="display:none;">▶ Resume</button>
+            <button id="reviveBtn" style="display:none;">⚡ Revive</button>
+        </div>
+        
+        <button id="downloadBtn" style="display:none;">💾 Save Video</button>
     </div>
     <script src="downloader.js"></script>
-  </body>
+</body>
 </html>

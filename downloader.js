@@ -7,6 +7,14 @@ const filenameEl = document.getElementById("filename");
 const downloadBtn = document.getElementById("downloadBtn");
 const multiBarContainer = document.getElementById("multi-bar-container");
 const targetName = urlParams.get("name") || `faststream_${Date.now()}`;
+
+// ⚡ Ensure the filename is fully visible and clean
+const cleanDisplayName = decodeURIComponent(targetName).replace(/_/g, " ");
+if (filenameEl) {
+  filenameEl.textContent = cleanDisplayName;
+  // Update the browser tab title as well
+  document.title = `Downloading: ${cleanDisplayName}`;
+}
 // ⚡ Update the UI to show the movie name
 filenameEl.textContent = targetName.replace(/_/g, " ");
 
@@ -32,17 +40,56 @@ let isManualRevive = false;
 let startTime = null;
 let currentQualityLabel = "Unknown";
 let timerInterval = null;
+let lastByteCount = 0;
+let heartbeatInterval = null;
+// ⚡ CHUNK MAP DRAWING ENGINE
+const chunkCanvas = document.getElementById("chunk-canvas");
+const ctx = chunkCanvas ? chunkCanvas.getContext("2d") : null;
 
-// ⚡ HELPER: Create a Progress Bar HTML element
+function updateChunkMap(totalSegments) {
+  if (!ctx) return;
+
+  const header = document.getElementById("chunk-map-header");
+  if (header) header.style.display = "block";
+  chunkCanvas.style.display = "block";
+
+  // ⚡ IMPROVED: Better balance between size and density
+  const cols = 65;
+  const rows = Math.ceil(totalSegments / cols);
+  const boxSize = 6; // Larger dots for better visibility
+  const gap = 1;
+
+  // Set canvas resolution to match our calculation
+  chunkCanvas.width = cols * (boxSize + gap) + gap;
+  chunkCanvas.height = rows * (boxSize + gap) + gap;
+
+  ctx.clearRect(0, 0, chunkCanvas.width, chunkCanvas.height);
+
+  for (let i = 0; i < totalSegments; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = col * (boxSize + gap) + gap;
+    const y = row * (boxSize + gap) + gap;
+
+    if (blobs[i] === undefined) {
+      ctx.fillStyle = "#1e293b";
+    } else if (blobs[i] === null) {
+      ctx.fillStyle = "#ef4444";
+    } else {
+      ctx.fillStyle = "#10b981";
+    }
+
+    ctx.fillRect(x, y, boxSize, boxSize);
+  }
+}
+
 function createBar(id) {
   const wrapper = document.createElement("div");
-  wrapper.style.marginBottom = "8px";
+  wrapper.className = "thread-row"; // ⚡ New CSS Class
   wrapper.innerHTML = `
-        <div style="font-size:10px; color:#ccc; margin-bottom:2px;">Thread ${
-          id + 1
-        }</div>
-        <div style="width: 100%; height: 10px; background: #555; border-radius: 5px; overflow: hidden;">
-            <div id="bar-${id}" style="height: 100%; background: #00b894; width: 0%; transition: width 0.2s;"></div>
+        <div class="thread-label">Thread ${id + 1}</div>
+        <div class="bar-bg">
+            <div id="bar-${id}" class="bar-fill"></div>
         </div>
     `;
   return wrapper;
@@ -189,7 +236,7 @@ function showQualityMenu(qualities) {
         `;
 
     btn.onclick = () => {
-      // ⚡ UPDATE THE LABEL FOR THE UI
+      // ⚡ ADD THIS LINE
       currentQualityLabel = q.label;
 
       container.style.display = "none";
@@ -252,7 +299,10 @@ async function processSegments(url, preLoadedText = null) {
 }
 
 async function downloadLoop(segments) {
+  updateChunkMap(segments.length);
   const PARTITIONS = 6;
+  lastByteCount = 0; // Reset
+  startHeartbeatMonitor(); // Start watching
 
   // ⚡ SETUP UI: Create 4 Bars
   multiBarContainer.innerHTML = ""; // Clear
@@ -294,51 +344,48 @@ async function downloadLoop(segments) {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const blob = await response.blob();
 
+            // Save data
             blobs[i] = blob;
             totalDownloadedBytes += blob.size;
-
-            // Update Stats
             localCompleted++;
             globalCompleted++;
 
-            // ⚡ UPDATE LOCAL BAR
-            const localPct = (localCompleted / totalForThisWorker) * 100;
-            localBar.style.width = localPct + "%";
-
-            // ⚡ START TIMER ON FIRST CHUNK
+            // ⚡ 1. HANDLE TIMER ON START
             if (!startTime) {
               startTime = Date.now();
-              document.getElementById("timer-info").style.display = "block";
-              startTimerUI(); // Start the tick
+              startTimerUI();
             }
 
-            // ⚡ CALCULATE ETA
+            // ⚡ 2. CALCULATE ETA
             const currentTime = Date.now();
             const elapsedSeconds = (currentTime - startTime) / 1000;
             const chunksPerSecond = globalCompleted / elapsedSeconds;
             const remainingChunks = segments.length - globalCompleted;
             const etaSeconds = remainingChunks / chunksPerSecond;
 
-            // Update UI
-            const pct = (globalCompleted / segments.length) * 100;
-            localBar.style.width = localPct + "%";
+            // ⚡ 3. UPDATE MODERN UI (DASHBOARD GRID)
+            const liveSizeEl = document.getElementById("live-size");
+            const liveQualityEl = document.getElementById("live-quality");
+            const etaTimeEl = document.getElementById("eta-time");
 
-            statusEl.innerHTML = `
-    <div style="color:#00cec9; font-weight:bold; margin-bottom:5px;">${targetName.substring(
-      0,
-      50
-    )}...</div>
-    Quality: <b style="color:#f1c40f;">${currentQualityLabel}</b><br>
-    Size: <b>${formatSize(totalDownloadedBytes)}</b><br>
-    Chunks: ${globalCompleted} / ${segments.length}
-`;
+            if (liveSizeEl)
+              liveSizeEl.textContent = formatSize(totalDownloadedBytes);
+            if (liveQualityEl) liveQualityEl.textContent = currentQualityLabel;
+            if (etaTimeEl) etaTimeEl.textContent = formatTime(etaSeconds);
 
-            // Update ETA Text
-            document.getElementById("eta-time").textContent =
-              formatTime(etaSeconds);
+            statusEl.textContent = `Progress: ${globalCompleted} / ${segments.length} chunks`;
+
+            // ⚡ 4. UPDATE INDIVIDUAL BAR
+            if (localBar) {
+              const localPct = (localCompleted / totalForThisWorker) * 100;
+              localBar.style.width = localPct + "%";
+            }
+
+            // ⚡ 5. UPDATE MAP
+            updateChunkMap(segments.length);
 
             activeControllers.delete(controller);
-            break;
+            break; // Success!
           } catch (fetchErr) {
             clearTimeout(timeoutId);
             activeControllers.delete(controller);
@@ -371,6 +418,8 @@ async function downloadLoop(segments) {
 }
 
 function finalize() {
+  updateChunkMap(blobs.length); // Final render
+  if (heartbeatInterval) clearInterval(heartbeatInterval); // Stop watching
   // 1. Stop the clock immediately
   if (timerInterval) clearInterval(timerInterval);
   const totalDuration = formatTime((Date.now() - startTime) / 1000);
@@ -433,15 +482,19 @@ resumeBtn.onclick = () => {
   resumeBtn.style.display = "none";
 };
 
-reviveBtn.onclick = () => {
-  statusEl.textContent = "⚡ Reviving...";
+// Function that does the actual work
+function triggerReviveLogic() {
+  statusEl.innerHTML += `<div style="color:#e17055;">⚡ Reviving...</div>`;
   isManualRevive = true;
   activeControllers.forEach((c) => c.abort());
   activeControllers.clear();
   setTimeout(() => {
     isManualRevive = false;
   }, 500);
-};
+}
+
+// The button just calls the function
+reviveBtn.onclick = triggerReviveLogic;
 
 start();
 
@@ -466,3 +519,32 @@ function startTimerUI() {
 // Add this inside your quality button click handler in showQualityMenu()
 // Inside: btn.onclick = () => { ...
 // ADD THIS LINE: currentQualityLabel = q.label;
+
+// ⚡ HEARTBEAT MONITOR: Detects stalls and auto-revives
+function startHeartbeatMonitor() {
+  // Clear any existing monitor first
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+
+  heartbeatInterval = setInterval(() => {
+    // Don't revive if we are paused, finished, or haven't started
+    if (isPaused || activeDownloads === 0) return;
+
+    if (totalDownloadedBytes === lastByteCount && totalDownloadedBytes > 0) {
+      console.log("Stall detected! Triggering Auto-Revive...");
+
+      // Visual feedback for the user
+      const notice = document.createElement("div");
+      notice.style.cssText =
+        "color:#e17055; font-size:10px; font-weight:bold; margin-top:5px;";
+      notice.textContent = "⚠️ STALL DETECTED: Auto-Reviving...";
+      statusEl.appendChild(notice);
+      setTimeout(() => notice.remove(), 3000);
+
+      // Execute the revive logic
+      triggerReviveLogic();
+    }
+
+    // Update the marker for the next check
+    lastByteCount = totalDownloadedBytes;
+  }, 15000); // 15 Seconds is the sweet spot for HLS
+}
